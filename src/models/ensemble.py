@@ -1,10 +1,11 @@
 import numpy as np
 from scipy.optimize import minimize
-from sklearn.metrics import brier_score_loss
+from sklearn.metrics import brier_score_loss, f1_score
 
 class DeepEnsemblePredictor:
-    def __init__(self, weights: dict[str, float] | None = None):
+    def __init__(self, weights: dict[str, float] | None = None, optimal_threshold: float = 0.5):
         self.weights = weights or {}
+        self.optimal_threshold = optimal_threshold
 
     def fit_weights(self, val_probas: dict[str, np.ndarray], y_val: np.ndarray) -> "DeepEnsemblePredictor":
         model_names = list(val_probas.keys())
@@ -31,6 +32,17 @@ class DeepEnsemblePredictor:
             opt_w = init_w
 
         self.weights = {name: float(w) for name, w in zip(model_names, opt_w)}
+        
+        p_val_ens = self.predict_proba(val_probas)
+        best_t = 0.50
+        best_f1 = -1.0
+        for t in np.linspace(0.40, 0.60, 41):
+            f1 = f1_score(y_val_arr, (p_val_ens >= t).astype(int), zero_division=0)
+            if f1 > best_f1:
+                best_f1 = f1
+                best_t = float(t)
+        self.optimal_threshold = best_t
+
         return self
 
     def predict_proba(self, model_probas: dict[str, np.ndarray]) -> np.ndarray:
@@ -54,5 +66,6 @@ class DeepEnsemblePredictor:
 
         return np.clip(weighted_prob, 0.0, 1.0)
 
-    def predict(self, model_probas: dict[str, np.ndarray], threshold: float = 0.5) -> np.ndarray:
-        return (self.predict_proba(model_probas) >= threshold).astype(int)
+    def predict(self, model_probas: dict[str, np.ndarray], threshold: float | None = None) -> np.ndarray:
+        t = threshold if threshold is not None else self.optimal_threshold
+        return (self.predict_proba(model_probas) >= t).astype(int)
