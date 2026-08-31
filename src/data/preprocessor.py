@@ -12,6 +12,12 @@ from src.utils.config import (
     BASE_STAT_COLS
 )
 from src.data.common import prepare_raw_team_logs
+from src.data.advanced_features import (
+    ADVANCED_STAT_COLS,
+    compute_four_factors_and_pace,
+    compute_elo_ratings,
+    compute_head_to_head_features
+)
 
 class NBAPreprocessor:
     def __init__(
@@ -23,24 +29,32 @@ class NBAPreprocessor:
         self.rolling_windows = rolling_windows or [3, 7, 14]
         self.scaler = StandardScaler()
         self.feature_columns: list[str] = []
+        self.all_stat_cols = list(BASE_STAT_COLS) + list(ADVANCED_STAT_COLS)
 
     def _prepare_team_logs(self, raw_df: pd.DataFrame) -> pd.DataFrame:
         df = prepare_raw_team_logs(raw_df)
+        df = compute_four_factors_and_pace(df)
         return df.sort_values(["TEAM_ID", "GAME_DATE"]).reset_index(drop=True)
 
     def _compute_rolling_features(self, team_df: pd.DataFrame) -> pd.DataFrame:
         grouped = team_df.groupby("TEAM_ID")
-        team_df["REST_DAYS"] = grouped["GAME_DATE"].diff().dt.total_seconds() / 86400.0
-        team_df["REST_DAYS"] = team_df["REST_DAYS"].fillna(7.0).clip(lower=0.0, upper=10.0)
-        team_df["BACK_TO_BACK"] = (team_df["REST_DAYS"] <= 1.0).astype(float)
+        rest_days = grouped["GAME_DATE"].diff().dt.total_seconds() / 86400.0
+        rest_days = rest_days.fillna(7.0).clip(lower=0.0, upper=10.0)
+        back_to_back = (rest_days <= 1.0).astype(float)
 
-        for col in BASE_STAT_COLS:
+        new_cols: dict[str, pd.Series] = {
+            "REST_DAYS": rest_days,
+            "BACK_TO_BACK": back_to_back
+        }
+
+        for col in self.all_stat_cols:
             shifted = grouped[col].shift(1)
             for w in self.rolling_windows:
                 roll = shifted.groupby(team_df["TEAM_ID"]).rolling(window=w, min_periods=1).mean()
-                team_df[f"{col}_ROLL_{w}"] = roll.reset_index(level=0, drop=True)
+                new_cols[f"{col}_ROLL_{w}"] = roll.reset_index(level=0, drop=True)
 
-        return team_df
+        rolling_df = pd.DataFrame(new_cols, index=team_df.index)
+        return pd.concat([team_df, rolling_df], axis=1)
 
     def _build_matchup_dataset(self, featured_team_df: pd.DataFrame) -> pd.DataFrame:
         home = featured_team_df[featured_team_df["IS_HOME"] == 1].copy()
@@ -61,18 +75,30 @@ class NBAPreprocessor:
             col for col in home.columns if "_ROLL_" in col or col in ["REST_DAYS", "BACK_TO_BACK"]
         ]
 
+        diff_dict = {}
         diff_cols = []
         for col in rolling_cols:
             home_col = f"{col}_HOME"
             away_col = f"{col}_AWAY"
             diff_col = f"{col}_DIFF"
-            matchups[diff_col] = matchups[home_col] - matchups[away_col]
+            diff_dict[diff_col] = matchups[home_col] - matchups[away_col]
             diff_cols.append(diff_col)
+
+        matchups = pd.concat([matchups, pd.DataFrame(diff_dict, index=matchups.index)], axis=1)
+
+        matchups = compute_elo_ratings(matchups)
+        matchups = compute_head_to_head_features(matchups)
+
+        elo_h2h_cols = [
+            "ELO_HOME", "ELO_AWAY", "ELO_DIFF", "ELO_EXPECTED_PROB",
+            "H2H_WIN_RATE", "H2H_POINT_DIFF", "H2H_GAMES_COUNT"
+        ]
 
         feature_cols = (
             [f"{c}_HOME" for c in rolling_cols]
             + [f"{c}_AWAY" for c in rolling_cols]
             + diff_cols
+            + elo_h2h_cols
         )
 
         matchups = matchups.dropna(subset=feature_cols)
