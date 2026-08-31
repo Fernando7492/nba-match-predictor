@@ -3,9 +3,11 @@ import numpy as np
 import pandas as pd
 from src.data.advanced_features import (
     compute_four_factors_and_pace,
+    compute_team_schedule_and_streaks,
     compute_elo_ratings,
     compute_head_to_head_features,
-    ADVANCED_STAT_COLS
+    ADVANCED_STAT_COLS,
+    SCHEDULE_STREAK_COLS
 )
 from src.data.preprocessor import NBAPreprocessor
 from src.data.collector import NBADataCollector
@@ -24,14 +26,30 @@ def test_four_factors_computation_bounds():
         "FTA": [22, 20],
         "OREB": [10, 8],
         "DREB": [32, 30],
+        "AST": [25, 20],
         "TOV": [14, 12]
     })
     
     out = compute_four_factors_and_pace(df)
     assert all(col in out.columns for col in ADVANCED_STAT_COLS)
     assert (out["EFG_PCT"] >= 0.0).all() and (out["EFG_PCT"] <= 1.0).all()
-    assert (out["TOV_PCT"] >= 0.0).all() and (out["TOV_PCT"] <= 1.0).all()
+    assert (out["TS_PCT"] >= 0.0).all() and (out["TS_PCT"] <= 1.2).all()
+    assert (out["AST_TOV_RATIO"] >= 0.0).all()
     assert (out["POSS"] >= 60.0).all() and (out["POSS"] <= 140.0).all()
+
+def test_team_schedule_and_streaks():
+    df = pd.DataFrame({
+        "TEAM_ID": [1, 1, 1],
+        "GAME_DATE": pd.to_datetime(["2023-01-01", "2023-01-02", "2023-01-04"]),
+        "SEASON": ["2022-23", "2022-23", "2022-23"],
+        "WIN": [1.0, 1.0, 0.0]
+    })
+    out = compute_team_schedule_and_streaks(df)
+    assert all(col in out.columns for col in SCHEDULE_STREAK_COLS)
+    assert out["WIN_STREAK"].iloc[0] == 0.0
+    assert out["WIN_STREAK"].iloc[1] == 1.0
+    assert out["WIN_STREAK"].iloc[2] == 2.0
+    assert out["GAMES_LAST_4_DAYS"].iloc[1] == 1.0
 
 def test_elo_ratings_evolution_and_properties():
     df = pd.DataFrame({
@@ -76,7 +94,8 @@ def test_preprocessor_with_advanced_features_integration():
         raw_df, train_seasons=["2022-23"], val_seasons=["2022-23"], test_seasons=["2023-24"]
     )
     
-    assert len(preprocessor.feature_columns) > 195
+    assert len(preprocessor.feature_columns) > 200
     assert "ELO_DIFF" in preprocessor.feature_columns
     assert "H2H_WIN_RATE" in preprocessor.feature_columns
+    assert "WIN_STREAK_HOME" in preprocessor.feature_columns
     assert not test_df[preprocessor.feature_columns].isnull().any().any()

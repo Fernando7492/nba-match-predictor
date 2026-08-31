@@ -2,28 +2,105 @@ import numpy as np
 import pandas as pd
 
 ADVANCED_STAT_COLS: list[str] = [
-    "POSS", "PACE", "EFG_PCT", "TOV_PCT", "OREB_PCT",
-    "FT_RATE", "ORTG", "DRTG", "NET_RATING"
+    "POSS", "PACE", "EFG_PCT", "TOV_PCT", "OREB_PCT", "DREB_PCT",
+    "FT_RATE", "ORTG", "DRTG", "NET_RATING", "TS_PCT", "AST_TOV_RATIO",
+    "OPP_EFG_PCT", "OPP_FG3_PCT"
+]
+
+SCHEDULE_STREAK_COLS: list[str] = [
+    "WIN_STREAK", "SEASON_WIN_PCT", "GAMES_LAST_4_DAYS", "GAMES_LAST_7_DAYS"
 ]
 
 def compute_four_factors_and_pace(team_df: pd.DataFrame) -> pd.DataFrame:
     df = team_df.copy()
     
-    poss = df["FGA"] + 0.44 * df["FTM"] - df["OREB"] + df["TOV"]
+    poss = df["FGA"] + 0.44 * df["FTA"] - df["OREB"] + df["TOV"]
     poss = poss.clip(lower=60.0, upper=140.0)
     
     df["POSS"] = poss
     df["PACE"] = poss
     df["EFG_PCT"] = (df["FGM"] + 0.5 * df["FG3M"]) / (df["FGA"] + 1e-6)
     df["TOV_PCT"] = df["TOV"] / (poss + 1e-6)
-    df["OREB_PCT"] = df["OREB"] / (df["OREB"] + df["DREB"] + 1e-6)
+    df["OREB_PCT"] = df["OREB"] / (df["OREB"] + df.get("OPP_DREB", df["DREB"]) + 1e-6)
+    df["DREB_PCT"] = df["DREB"] / (df["DREB"] + df.get("OPP_OREB", df["OREB"]) + 1e-6)
     df["FT_RATE"] = df["FTM"] / (df["FGA"] + 1e-6)
     df["ORTG"] = 100.0 * df["PTS"] / (poss + 1e-6)
     df["DRTG"] = 100.0 * df["PTS_ALLOWED"] / (poss + 1e-6)
     df["NET_RATING"] = df["ORTG"] - df["DRTG"]
 
+    df["TS_PCT"] = df["PTS"] / (2.0 * (df["FGA"] + 0.44 * df["FTA"]) + 1e-6)
+    df["AST_TOV_RATIO"] = df["AST"] / (df["TOV"] + 1e-6)
+
+    if "OPP_FGA" in df.columns and "OPP_FGM" in df.columns:
+        df["OPP_EFG_PCT"] = (df["OPP_FGM"] + 0.5 * df.get("OPP_FG3M", 0.0)) / (df["OPP_FGA"] + 1e-6)
+        df["OPP_FG3_PCT"] = df.get("OPP_FG3M", 0.0) / (df.get("OPP_FG3A", 1.0) + 1e-6)
+    else:
+        df["OPP_EFG_PCT"] = df["EFG_PCT"]
+        df["OPP_FG3_PCT"] = df.get("FG3_PCT", 0.35)
+
     for col in ADVANCED_STAT_COLS:
         df[col] = df[col].fillna(0.0)
+
+    return df
+
+def compute_team_schedule_and_streaks(team_df: pd.DataFrame) -> pd.DataFrame:
+    df = team_df.sort_values(["TEAM_ID", "GAME_DATE"]).copy().reset_index(drop=True)
+    
+    win_streaks = np.zeros(len(df), dtype=float)
+    season_win_pcts = np.zeros(len(df), dtype=float)
+    games_4d = np.zeros(len(df), dtype=float)
+    games_7d = np.zeros(len(df), dtype=float)
+
+    team_groups = df.groupby("TEAM_ID")
+
+    for team_id, indices in team_groups.groups.items():
+        sub = df.loc[indices]
+        dates = sub["GAME_DATE"].values
+        wins = sub["WIN"].values
+        seasons = sub["SEASON"].values
+
+        current_streak = 0.0
+        season_wins = 0.0
+        season_games = 0.0
+        curr_season = None
+
+        for pos, idx in enumerate(indices):
+            s = seasons[pos]
+            if s != curr_season:
+                curr_season = s
+                season_wins = 0.0
+                season_games = 0.0
+                current_streak = 0.0
+
+            win_streaks[idx] = current_streak
+            season_win_pcts[idx] = (season_wins / season_games) if season_games > 0 else 0.5
+
+            d_curr = dates[pos]
+            c4 = 0.0
+            c7 = 0.0
+            for back_pos in range(pos - 1, -1, -1):
+                diff_days = (d_curr - dates[back_pos]) / np.timedelta64(1, "D")
+                if diff_days <= 4.0:
+                    c4 += 1.0
+                if diff_days <= 7.0:
+                    c7 += 1.0
+                else:
+                    break
+            games_4d[idx] = c4
+            games_7d[idx] = c7
+
+            w = wins[pos]
+            if w == 1.0:
+                current_streak = current_streak + 1.0 if current_streak > 0 else 1.0
+                season_wins += 1.0
+            else:
+                current_streak = current_streak - 1.0 if current_streak < 0 else -1.0
+            season_games += 1.0
+
+    df["WIN_STREAK"] = win_streaks
+    df["SEASON_WIN_PCT"] = season_win_pcts
+    df["GAMES_LAST_4_DAYS"] = games_4d
+    df["GAMES_LAST_7_DAYS"] = games_7d
 
     return df
 

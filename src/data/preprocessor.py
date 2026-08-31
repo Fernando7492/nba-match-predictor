@@ -14,7 +14,9 @@ from src.utils.config import (
 from src.data.common import prepare_raw_team_logs
 from src.data.advanced_features import (
     ADVANCED_STAT_COLS,
+    SCHEDULE_STREAK_COLS,
     compute_four_factors_and_pace,
+    compute_team_schedule_and_streaks,
     compute_elo_ratings,
     compute_head_to_head_features
 )
@@ -34,6 +36,7 @@ class NBAPreprocessor:
     def _prepare_team_logs(self, raw_df: pd.DataFrame) -> pd.DataFrame:
         df = prepare_raw_team_logs(raw_df)
         df = compute_four_factors_and_pace(df)
+        df = compute_team_schedule_and_streaks(df)
         return df.sort_values(["TEAM_ID", "GAME_DATE"]).reset_index(drop=True)
 
     def _compute_rolling_features(self, team_df: pd.DataFrame) -> pd.DataFrame:
@@ -71,8 +74,9 @@ class NBAPreprocessor:
         matchups["GAME_DATE"] = pd.to_datetime(matchups["GAME_DATE_HOME"])
         matchups["SEASON"] = matchups["SEASON_HOME"]
 
+        point_in_time_cols = ["REST_DAYS", "BACK_TO_BACK"] + list(SCHEDULE_STREAK_COLS)
         rolling_cols = [
-            col for col in home.columns if "_ROLL_" in col or col in ["REST_DAYS", "BACK_TO_BACK"]
+            col for col in home.columns if "_ROLL_" in col or col in point_in_time_cols
         ]
 
         diff_dict = {}
