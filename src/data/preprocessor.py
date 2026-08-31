@@ -4,7 +4,14 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 import joblib
-from src.utils.config import ProjectPaths
+from src.utils.config import (
+    ProjectPaths,
+    DEFAULT_SEASONS_TRAIN,
+    DEFAULT_SEASONS_VAL,
+    DEFAULT_SEASONS_TEST,
+    BASE_STAT_COLS
+)
+from src.data.common import prepare_raw_team_logs
 
 class NBAPreprocessor:
     def __init__(
@@ -18,39 +25,16 @@ class NBAPreprocessor:
         self.feature_columns: list[str] = []
 
     def _prepare_team_logs(self, raw_df: pd.DataFrame) -> pd.DataFrame:
-        df = raw_df.copy()
-        df["GAME_DATE"] = pd.to_datetime(df["GAME_DATE"])
-        df["IS_HOME"] = df["MATCHUP"].str.contains(" vs. ").astype(int)
-        df["WIN"] = (df["WL"] == "W").astype(float)
-        
-        for pct_col in ["FG_PCT", "FG3_PCT", "FT_PCT"]:
-            if pct_col in df.columns:
-                df[pct_col] = df[pct_col].fillna(0.0)
-
-        df = df.sort_values(["GAME_DATE", "GAME_ID"]).reset_index(drop=True)
-
-        opponents = df[["GAME_ID", "TEAM_ID", "PTS"]].rename(
-            columns={"TEAM_ID": "OPP_TEAM_ID", "PTS": "PTS_ALLOWED"}
-        )
-        merged = df.merge(opponents, on="GAME_ID")
-        merged = merged[merged["TEAM_ID"] != merged["OPP_TEAM_ID"]].copy()
-        merged = merged.sort_values(["TEAM_ID", "GAME_DATE"]).reset_index(drop=True)
-        return merged
+        df = prepare_raw_team_logs(raw_df)
+        return df.sort_values(["TEAM_ID", "GAME_DATE"]).reset_index(drop=True)
 
     def _compute_rolling_features(self, team_df: pd.DataFrame) -> pd.DataFrame:
-        base_stats = [
-            "PTS", "PTS_ALLOWED", "FGM", "FGA", "FG_PCT",
-            "FG3M", "FG3A", "FG3_PCT", "FTM", "FTA", "FT_PCT",
-            "OREB", "DREB", "REB", "AST", "STL", "BLK", "TOV", "PF",
-            "PLUS_MINUS", "WIN"
-        ]
-
         grouped = team_df.groupby("TEAM_ID")
         team_df["REST_DAYS"] = grouped["GAME_DATE"].diff().dt.total_seconds() / 86400.0
         team_df["REST_DAYS"] = team_df["REST_DAYS"].fillna(7.0).clip(lower=0.0, upper=10.0)
         team_df["BACK_TO_BACK"] = (team_df["REST_DAYS"] <= 1.0).astype(float)
 
-        for col in base_stats:
+        for col in BASE_STAT_COLS:
             shifted = grouped[col].shift(1)
             for w in self.rolling_windows:
                 roll = shifted.groupby(team_df["TEAM_ID"]).rolling(window=w, min_periods=1).mean()
@@ -103,12 +87,9 @@ class NBAPreprocessor:
         val_seasons: list[str] | None = None,
         test_seasons: list[str] | None = None
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        train_seasons = train_seasons or [
-            "2014-15", "2015-16", "2016-17", "2017-18",
-            "2018-19", "2019-20", "2020-21", "2021-22"
-        ]
-        val_seasons = val_seasons or ["2022-23"]
-        test_seasons = test_seasons or ["2023-24"]
+        train_seasons = train_seasons or DEFAULT_SEASONS_TRAIN
+        val_seasons = val_seasons or DEFAULT_SEASONS_VAL
+        test_seasons = test_seasons or DEFAULT_SEASONS_TEST
 
         team_df = self._prepare_team_logs(raw_df)
         featured_df = self._compute_rolling_features(team_df)

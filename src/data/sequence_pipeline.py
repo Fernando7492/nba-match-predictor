@@ -2,9 +2,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from sklearn.preprocessing import StandardScaler
-from src.utils.config import ProjectPaths
+from src.utils.config import (
+    ProjectPaths,
+    DEFAULT_SEASONS_TRAIN,
+    DEFAULT_SEASONS_VAL,
+    DEFAULT_SEASONS_TEST,
+    BASE_STAT_COLS
+)
+from src.data.common import prepare_raw_team_logs
 
 class NBASequenceDataset(Dataset):
     def __init__(
@@ -32,12 +39,7 @@ class NBASequencePipeline:
         self.paths = paths or ProjectPaths()
         self.sequence_length = sequence_length
         self.scaler = StandardScaler()
-        self.stat_cols = [
-            "PTS", "PTS_ALLOWED", "FGM", "FGA", "FG_PCT",
-            "FG3M", "FG3A", "FG3_PCT", "FTM", "FTA", "FT_PCT",
-            "OREB", "DREB", "REB", "AST", "STL", "BLK", "TOV", "PF",
-            "PLUS_MINUS", "WIN"
-        ]
+        self.stat_cols = list(BASE_STAT_COLS)
 
     def build_sequences(
         self,
@@ -47,43 +49,24 @@ class NBASequencePipeline:
         val_seasons: list[str] | None = None,
         test_seasons: list[str] | None = None
     ) -> tuple[NBASequenceDataset, NBASequenceDataset, NBASequenceDataset]:
-        train_seasons = train_seasons or [
-            "2014-15", "2015-16", "2016-17", "2017-18",
-            "2018-19", "2019-20", "2020-21", "2021-22"
-        ]
-        val_seasons = val_seasons or ["2022-23"]
-        test_seasons = test_seasons or ["2023-24"]
+        train_seasons = train_seasons or DEFAULT_SEASONS_TRAIN
+        val_seasons = val_seasons or DEFAULT_SEASONS_VAL
+        test_seasons = test_seasons or DEFAULT_SEASONS_TEST
 
-        df = raw_df.copy()
-        df["GAME_DATE"] = pd.to_datetime(df["GAME_DATE"])
-        df["IS_HOME"] = df["MATCHUP"].str.contains(" vs. ").astype(int)
-        df["WIN"] = (df["WL"] == "W").astype(float)
-        
-        for pct_col in ["FG_PCT", "FG3_PCT", "FT_PCT"]:
-            if pct_col in df.columns:
-                df[pct_col] = df[pct_col].fillna(0.0)
-
-        df = df.sort_values(["GAME_DATE", "GAME_ID"]).reset_index(drop=True)
-
-        opponents = df[["GAME_ID", "TEAM_ID", "PTS"]].rename(
-            columns={"TEAM_ID": "OPP_TEAM_ID", "PTS": "PTS_ALLOWED"}
-        )
-        merged = df.merge(opponents, on="GAME_ID")
-        merged = merged[merged["TEAM_ID"] != merged["OPP_TEAM_ID"]].copy()
-        merged = merged.sort_values(["GAME_DATE", "GAME_ID", "TEAM_ID"]).reset_index(drop=True)
+        merged = prepare_raw_team_logs(raw_df)
 
         train_stat_rows = merged[merged["SEASON"].isin(train_seasons)][self.stat_cols].values
         self.scaler.fit(train_stat_rows)
 
-        scaled_stats = self.scaler.transform(merged[self.stat_cols].values)
-        for i, col in enumerate(self.stat_cols):
-            merged[f"SCALED_{col}"] = scaled_stats[:, i]
-
-        scaled_cols = [f"SCALED_{c}" for c in self.stat_cols]
-
-        team_history: dict[int, list[dict]] = {}
-        for team_id in merged["TEAM_ID"].unique():
-            team_history[team_id] = []
+        scaled_matrix = self.scaler.transform(merged[self.stat_cols].values).astype(np.float32)
+        
+        team_ids = merged["TEAM_ID"].values
+        game_ids = merged["GAME_ID"].astype(str).values
+        
+        team_game_stats = {
+            (game_ids[i], team_ids[i]): scaled_matrix[i]
+            for i in range(len(merged))
+        }
 
         all_games = (
             merged[merged["IS_HOME"] == 1][["GAME_ID", "GAME_DATE", "SEASON", "TEAM_ID", "WIN"]]
@@ -98,46 +81,54 @@ class NBASequencePipeline:
             .reset_index(drop=True)
         )
 
-        team_game_stats = {}
-        for _, row in merged.iterrows():
-            g_id = row["GAME_ID"]
-            t_id = row["TEAM_ID"]
-            stats_vec = row[scaled_cols].values.astype(np.float32)
-            team_game_stats[(g_id, t_id)] = stats_vec
+        team_history: dict[int, list[np.ndarray]] = {
+            t_id: [] for t_id in np.unique(team_ids)
+        }
 
-        split_data: dict[str, dict[str, list]] = {
+        split_data: dict[str, dict[str, list[np.ndarray]]] = {
             "train": {"home": [], "away": [], "target": []},
             "val": {"home": [], "away": [], "target": []},
             "test": {"home": [], "away": [], "target": []}
         }
 
-        d = len(scaled_cols)
+        d = len(self.stat_cols)
         pad_vec = np.zeros(d, dtype=np.float32)
 
-        for _, match in all_games.iterrows():
-            g_id = match["GAME_ID"]
-            h_id = match["HOME_TEAM_ID"]
-            a_id = match["AWAY_TEAM_ID"]
-            season = match["SEASON"]
-            target = match["TARGET_HOME_W"]
+        g_ids = all_games["GAME_ID"].astype(str).values
+        h_ids = all_games["HOME_TEAM_ID"].values
+        a_ids = all_games["AWAY_TEAM_ID"].values
+        seasons = all_games["SEASON"].values
+        targets = all_games["TARGET_HOME_W"].values.astype(np.float32)
+
+        train_set = set(train_seasons)
+        val_set = set(val_seasons)
+
+        for i in range(len(all_games)):
+            g_id = g_ids[i]
+            h_id = h_ids[i]
+            a_id = a_ids[i]
+            season = seasons[i]
+            target = targets[i]
 
             h_hist = team_history[h_id]
             a_hist = team_history[a_id]
 
             if len(h_hist) >= self.sequence_length:
-                h_seq = np.array(h_hist[-self.sequence_length:], dtype=np.float32)
+                h_seq = np.stack(h_hist[-self.sequence_length:], axis=0)
             else:
                 pad_len = self.sequence_length - len(h_hist)
-                h_seq = np.array([pad_vec] * pad_len + h_hist, dtype=np.float32)
+                padded_list = [pad_vec] * pad_len + h_hist
+                h_seq = np.stack(padded_list, axis=0) if padded_list else np.zeros((self.sequence_length, d), dtype=np.float32)
 
             if len(a_hist) >= self.sequence_length:
-                a_seq = np.array(a_hist[-self.sequence_length:], dtype=np.float32)
+                a_seq = np.stack(a_hist[-self.sequence_length:], axis=0)
             else:
                 pad_len = self.sequence_length - len(a_hist)
-                a_seq = np.array([pad_vec] * pad_len + a_hist, dtype=np.float32)
+                padded_list = [pad_vec] * pad_len + a_hist
+                a_seq = np.stack(padded_list, axis=0) if padded_list else np.zeros((self.sequence_length, d), dtype=np.float32)
 
             if valid_game_ids is None or g_id in valid_game_ids:
-                split_name = "train" if season in train_seasons else ("val" if season in val_seasons else "test")
+                split_name = "train" if season in train_set else ("val" if season in val_set else "test")
                 split_data[split_name]["home"].append(h_seq)
                 split_data[split_name]["away"].append(a_seq)
                 split_data[split_name]["target"].append(target)
@@ -146,19 +137,19 @@ class NBASequencePipeline:
             team_history[a_id].append(team_game_stats[(g_id, a_id)])
 
         train_ds = NBASequenceDataset(
-            np.array(split_data["train"]["home"]),
-            np.array(split_data["train"]["away"]),
-            np.array(split_data["train"]["target"])
+            np.array(split_data["train"]["home"], dtype=np.float32),
+            np.array(split_data["train"]["away"], dtype=np.float32),
+            np.array(split_data["train"]["target"], dtype=np.float32)
         )
         val_ds = NBASequenceDataset(
-            np.array(split_data["val"]["home"]),
-            np.array(split_data["val"]["away"]),
-            np.array(split_data["val"]["target"])
+            np.array(split_data["val"]["home"], dtype=np.float32),
+            np.array(split_data["val"]["away"], dtype=np.float32),
+            np.array(split_data["val"]["target"], dtype=np.float32)
         )
         test_ds = NBASequenceDataset(
-            np.array(split_data["test"]["home"]),
-            np.array(split_data["test"]["away"]),
-            np.array(split_data["test"]["target"])
+            np.array(split_data["test"]["home"], dtype=np.float32),
+            np.array(split_data["test"]["away"], dtype=np.float32),
+            np.array(split_data["test"]["target"], dtype=np.float32)
         )
 
         return train_ds, val_ds, test_ds

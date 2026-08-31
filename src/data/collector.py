@@ -2,19 +2,26 @@ import time
 from pathlib import Path
 import pandas as pd
 from nba_api.stats.endpoints import leaguegamelog
-from src.utils.config import ProjectPaths
+from src.utils.config import ProjectPaths, DEFAULT_SEASONS_ALL
 
 class NBADataCollector:
     def __init__(self, paths: ProjectPaths | None = None):
         self.paths = paths or ProjectPaths()
-        self.raw_file = self.paths.data_raw / "nba_games_raw.parquet"
 
-    def fetch_season(self, season: str, max_retries: int = 5, retry_delay: float = 2.0) -> pd.DataFrame:
+    def fetch_season_gamelogs(
+        self,
+        season: str,
+        season_type: str = "Regular Season",
+        max_retries: int = 3,
+        delay: float = 0.8
+    ) -> pd.DataFrame:
         for attempt in range(max_retries):
             try:
+                time.sleep(delay)
                 log = leaguegamelog.LeagueGameLog(
                     season=season,
-                    season_type_all_star="Regular Season",
+                    season_type_all_star=season_type,
+                    player_or_team_abbreviation="T",
                     timeout=30
                 )
                 frames = log.get_data_frames()
@@ -25,43 +32,34 @@ class NBADataCollector:
             except Exception:
                 if attempt == max_retries - 1:
                     raise
-                time.sleep(retry_delay * (attempt + 1))
-        raise RuntimeError(f"Failed to fetch season {season}")
+                time.sleep(delay * (attempt + 1))
+        return pd.DataFrame()
 
     def collect_all_seasons(
         self,
         seasons: list[str] | None = None,
         force_download: bool = False
     ) -> pd.DataFrame:
-        if seasons is None:
-            seasons = [
-                "2014-15",
-                "2015-16",
-                "2016-17",
-                "2017-18",
-                "2018-19",
-                "2019-20",
-                "2020-21",
-                "2021-22",
-                "2022-23",
-                "2023-24"
-            ]
+        seasons = seasons or DEFAULT_SEASONS_ALL
 
-        if self.raw_file.exists() and not force_download:
-            cached_df = pd.read_parquet(self.raw_file)
-            cached_seasons = set(cached_df["SEASON"].unique())
-            if set(seasons).issubset(cached_seasons):
-                return cached_df
-
-        season_dfs: list[pd.DataFrame] = []
-        for season in seasons:
-            df = self.fetch_season(season)
-            season_dfs.append(df)
-            time.sleep(0.8)
-
-        combined = pd.concat(season_dfs, ignore_index=True)
-        combined["GAME_DATE"] = pd.to_datetime(combined["GAME_DATE"])
-        combined = combined.sort_values(["GAME_DATE", "GAME_ID"]).reset_index(drop=True)
         self.paths.data_raw.mkdir(parents=True, exist_ok=True)
-        combined.to_parquet(self.raw_file, index=False)
-        return combined
+        cache_file = self.paths.data_raw / "nba_raw_gamelogs.parquet"
+
+        if cache_file.exists() and not force_download:
+            cached_df = pd.read_parquet(cache_file)
+            available_seasons = set(cached_df["SEASON"].unique())
+            if set(seasons).issubset(available_seasons):
+                return cached_df[cached_df["SEASON"].isin(seasons)].copy()
+
+        all_frames = []
+        for season in seasons:
+            df = self.fetch_season_gamelogs(season=season)
+            if not df.empty:
+                all_frames.append(df)
+
+        if not all_frames:
+            raise RuntimeError("No data was collected from NBA API.")
+
+        full_df = pd.concat(all_frames, ignore_index=True)
+        full_df.to_parquet(cache_file, index=False)
+        return full_df
