@@ -2,20 +2,21 @@ import torch
 import torch.nn as nn
 
 class ResidualBlock(nn.Module):
-    def __init__(self, dim: int, dropout: float = 0.2):
+    def __init__(self, hidden_dim: int | None = None, dim: int | None = None, dropout: float = 0.2):
         super().__init__()
+        h_dim = hidden_dim or dim or 128
         self.block = nn.Sequential(
-            nn.Linear(dim, dim),
-            nn.BatchNorm1d(dim),
+            nn.Linear(h_dim, h_dim),
+            nn.BatchNorm1d(h_dim),
             nn.Mish(),
             nn.Dropout(dropout),
-            nn.Linear(dim, dim),
-            nn.BatchNorm1d(dim)
+            nn.Linear(h_dim, h_dim),
+            nn.BatchNorm1d(h_dim)
         )
-        self.activation = nn.Mish()
+        self.act = nn.Mish()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.activation(x + self.block(x))
+        return self.act(x + self.block(x))
 
 class DeepResNetMLP(nn.Module):
     def __init__(
@@ -23,7 +24,7 @@ class DeepResNetMLP(nn.Module):
         input_dim: int,
         hidden_dim: int = 128,
         num_blocks: int = 3,
-        dropout: float = 0.25
+        dropout: float = 0.2
     ):
         super().__init__()
         self.input_layer = nn.Sequential(
@@ -32,11 +33,10 @@ class DeepResNetMLP(nn.Module):
             nn.Mish(),
             nn.Dropout(dropout)
         )
-
-        self.blocks = nn.ModuleList(
-            [ResidualBlock(hidden_dim, dropout=dropout) for _ in range(num_blocks)]
-        )
-
+        self.blocks = nn.ModuleList([
+            ResidualBlock(hidden_dim=hidden_dim, dropout=dropout)
+            for _ in range(num_blocks)
+        ])
         self.head = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.BatchNorm1d(hidden_dim // 2),
@@ -44,6 +44,17 @@ class DeepResNetMLP(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(hidden_dim // 2, 1)
         )
+        self._init_weights()
+
+    def _init_weights(self) -> None:
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.BatchNorm1d):
+                nn.init.ones_(m.weight)
+                nn.init.zeros_(m.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         h = self.input_layer(x)
@@ -52,7 +63,11 @@ class DeepResNetMLP(nn.Module):
         return self.head(h)
 
     def predict_proba(self, x: torch.Tensor) -> torch.Tensor:
+        was_training = self.training
         self.eval()
-        with torch.no_grad():
-            logits = self.forward(x)
-            return torch.sigmoid(logits)
+        try:
+            with torch.no_grad():
+                return torch.sigmoid(self.forward(x))
+        finally:
+            if was_training:
+                self.train()
