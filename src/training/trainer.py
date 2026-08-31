@@ -11,6 +11,7 @@ class ModelTrainer:
         model: nn.Module,
         optimizer: Optimizer,
         criterion: nn.Module | None = None,
+        scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
         device: str | torch.device | None = None,
         patience: int = 15,
         save_path: Path | str | None = None
@@ -19,6 +20,7 @@ class ModelTrainer:
         self.model = model.to(self.device)
         self.optimizer = optimizer
         self.criterion = criterion or nn.BCEWithLogitsLoss()
+        self.scheduler = scheduler
         self.patience = patience
         self.save_path = Path(save_path) if save_path else None
         self.best_model_state: dict | None = None
@@ -37,6 +39,7 @@ class ModelTrainer:
             logits = self.model(x_batch)
             loss = self.criterion(logits, y_batch)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             self.optimizer.step()
 
             total_loss += loss.item() * len(y_batch)
@@ -81,6 +84,12 @@ class ModelTrainer:
         for epoch in range(epochs):
             train_loss, train_acc = self.train_epoch(train_loader)
             val_loss, val_acc = self.evaluate(val_loader)
+
+            if self.scheduler is not None:
+                if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                    self.scheduler.step(val_loss)
+                else:
+                    self.scheduler.step()
 
             history["train_loss"].append(train_loss)
             history["val_loss"].append(val_loss)
