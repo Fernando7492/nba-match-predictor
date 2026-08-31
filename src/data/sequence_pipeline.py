@@ -42,6 +42,7 @@ class NBASequencePipeline:
     def build_sequences(
         self,
         raw_df: pd.DataFrame,
+        valid_game_ids: set[str] | None = None,
         train_seasons: list[str] | None = None,
         val_seasons: list[str] | None = None,
         test_seasons: list[str] | None = None
@@ -69,7 +70,7 @@ class NBASequencePipeline:
         )
         merged = df.merge(opponents, on="GAME_ID")
         merged = merged[merged["TEAM_ID"] != merged["OPP_TEAM_ID"]].copy()
-        merged = merged.sort_values(["TEAM_ID", "GAME_DATE"]).reset_index(drop=True)
+        merged = merged.sort_values(["GAME_DATE", "GAME_ID", "TEAM_ID"]).reset_index(drop=True)
 
         train_stat_rows = merged[merged["SEASON"].isin(train_seasons)][self.stat_cols].values
         self.scaler.fit(train_stat_rows)
@@ -93,7 +94,7 @@ class NBASequencePipeline:
                 ),
                 on="GAME_ID"
             )
-            .sort_values("GAME_DATE")
+            .sort_values(["GAME_DATE", "GAME_ID"])
             .reset_index(drop=True)
         )
 
@@ -135,10 +136,11 @@ class NBASequencePipeline:
                 pad_len = self.sequence_length - len(a_hist)
                 a_seq = np.array([pad_vec] * pad_len + a_hist, dtype=np.float32)
 
-            split_name = "train" if season in train_seasons else ("val" if season in val_seasons else "test")
-            split_data[split_name]["home"].append(h_seq)
-            split_data[split_name]["away"].append(a_seq)
-            split_data[split_name]["target"].append(target)
+            if valid_game_ids is None or g_id in valid_game_ids:
+                split_name = "train" if season in train_seasons else ("val" if season in val_seasons else "test")
+                split_data[split_name]["home"].append(h_seq)
+                split_data[split_name]["away"].append(a_seq)
+                split_data[split_name]["target"].append(target)
 
             team_history[h_id].append(team_game_stats[(g_id, h_id)])
             team_history[a_id].append(team_game_stats[(g_id, a_id)])

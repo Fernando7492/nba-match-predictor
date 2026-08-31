@@ -70,7 +70,7 @@ class NBAPreprocessor:
         )
 
         matchups["TARGET_HOME_W"] = matchups["WIN_HOME"].astype(int)
-        matchups["GAME_DATE"] = matchups["GAME_DATE_HOME"]
+        matchups["GAME_DATE"] = pd.to_datetime(matchups["GAME_DATE_HOME"])
         matchups["SEASON"] = matchups["SEASON_HOME"]
 
         rolling_cols = [
@@ -91,7 +91,8 @@ class NBAPreprocessor:
             + diff_cols
         )
 
-        matchups = matchups.dropna(subset=feature_cols).reset_index(drop=True)
+        matchups = matchups.dropna(subset=feature_cols)
+        matchups = matchups.sort_values(["GAME_DATE", "GAME_ID"]).reset_index(drop=True)
         self.feature_columns = feature_cols
         return matchups
 
@@ -113,9 +114,9 @@ class NBAPreprocessor:
         featured_df = self._compute_rolling_features(team_df)
         matchups = self._build_matchup_dataset(featured_df)
 
-        train_df = matchups[matchups["SEASON"].isin(train_seasons)].copy().reset_index(drop=True)
-        val_df = matchups[matchups["SEASON"].isin(val_seasons)].copy().reset_index(drop=True)
-        test_df = matchups[matchups["SEASON"].isin(test_seasons)].copy().reset_index(drop=True)
+        train_df = matchups[matchups["SEASON"].isin(train_seasons)].copy().sort_values(["GAME_DATE", "GAME_ID"]).reset_index(drop=True)
+        val_df = matchups[matchups["SEASON"].isin(val_seasons)].copy().sort_values(["GAME_DATE", "GAME_ID"]).reset_index(drop=True)
+        test_df = matchups[matchups["SEASON"].isin(test_seasons)].copy().sort_values(["GAME_DATE", "GAME_ID"]).reset_index(drop=True)
 
         self.scaler.fit(train_df[self.feature_columns].values)
 
