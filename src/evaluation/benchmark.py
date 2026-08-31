@@ -40,6 +40,7 @@ def evaluate_and_record(
     metrics = compute_all_metrics(y_test, p_test)
     metrics["model"] = name
     metrics["family"] = family
+    print(f"  [Métricas Teste] {name} -> Acurácia: {metrics['accuracy']*100:.2f}% | F1: {metrics['f1_score']:.4f} | ROC-AUC: {metrics['roc_auc']:.4f} | Brier: {metrics['brier_score']:.4f}")
     return metrics
 
 def run_baselines(
@@ -50,6 +51,7 @@ def run_baselines(
     y_test: np.ndarray,
     seed: int
 ) -> tuple[list[dict], dict[str, np.ndarray], dict[str, np.ndarray]]:
+    print("\n--- [Etapa 3/6] Treinando e Avaliando Baselines Estatísticos ---")
     results = []
     val_probas = {}
     test_probas = {}
@@ -88,11 +90,13 @@ def run_tabular_deep_models(
     paths: ProjectPaths,
     config: ModelConfig
 ) -> tuple[list[dict], dict[str, np.ndarray], dict[str, np.ndarray], dict[str, dict]]:
+    print("\n--- [Etapa 4/6] Treinando Redes Neurais Tabulares (MLP e Deep ResNet) ---")
     results = []
     val_probas = {}
     test_probas = {}
     histories = {}
 
+    print("-> Iniciando treinamento da RNA Clássica (MLP)...")
     mlp = ClassicalMLP(input_dim=input_dim, hidden_dim_1=128, hidden_dim_2=64, dropout=0.2)
     mlp_opt = torch.optim.AdamW(mlp.parameters(), lr=1e-3, weight_decay=config.weight_decay)
     mlp_sched = torch.optim.lr_scheduler.ReduceLROnPlateau(mlp_opt, mode="min", factor=0.5, patience=4)
@@ -112,6 +116,7 @@ def run_tabular_deep_models(
     test_probas["RNA Clássica (MLP)"] = p_mlp_test
     results.append(evaluate_and_record("RNA Clássica (MLP)", "RNA", y_test, p_mlp_test))
 
+    print("-> Iniciando treinamento do Deep ResNet MLP (Residual)...")
     resnet = DeepResNetMLP(input_dim=input_dim, hidden_dim=128, num_blocks=3, dropout=0.25)
     resnet_opt = torch.optim.AdamW(resnet.parameters(), lr=1e-3, weight_decay=config.weight_decay)
     resnet_sched = torch.optim.lr_scheduler.ReduceLROnPlateau(resnet_opt, mode="min", factor=0.5, patience=4)
@@ -142,11 +147,13 @@ def run_sequence_deep_models(
     paths: ProjectPaths,
     config: ModelConfig
 ) -> tuple[list[dict], dict[str, np.ndarray], dict[str, np.ndarray], dict[str, dict]]:
+    print("\n--- [Etapa 5/6] Treinando Modelos Sequenciais (LSTM e Transformer) ---")
     results = []
     val_probas = {}
     test_probas = {}
     histories = {}
 
+    print("-> Iniciando treinamento do Dual-Branch LSTM...")
     lstm = DualBranchLSTM(input_dim=stat_dim, hidden_dim=64, num_layers=2, dropout=0.2)
     lstm_opt = torch.optim.AdamW(lstm.parameters(), lr=1e-3, weight_decay=config.weight_decay)
     lstm_sched = torch.optim.lr_scheduler.ReduceLROnPlateau(lstm_opt, mode="min", factor=0.5, patience=4)
@@ -166,6 +173,7 @@ def run_sequence_deep_models(
     test_probas["Dual-Branch LSTM"] = p_lstm_test
     results.append(evaluate_and_record("Dual-Branch LSTM", "Deep Learning", y_test, p_lstm_test))
 
+    print("-> Iniciando treinamento do Matchup Transformer...")
     trans = MatchupTransformer(input_dim=stat_dim, d_model=64, nhead=4, num_layers=2, dropout=0.2)
     trans_opt = torch.optim.AdamW(trans.parameters(), lr=5e-4, weight_decay=config.weight_decay)
     trans_sched = torch.optim.lr_scheduler.ReduceLROnPlateau(trans_opt, mode="min", factor=0.5, patience=4)
@@ -197,6 +205,7 @@ def run_hybrid_model(
     paths: ProjectPaths,
     config: ModelConfig
 ) -> tuple[list[dict], dict[str, np.ndarray], dict[str, np.ndarray], dict[str, dict]]:
+    print("-> Iniciando treinamento da Rede Híbrida de Atenção Cruzada (Cross-Attention)...")
     results = []
     val_probas = {}
     test_probas = {}
@@ -231,14 +240,23 @@ def run_full_benchmark(
     config = config or ModelConfig()
     set_seed(config.seed)
 
+    print("=================================================================")
+    print("🏀 INICIANDO BENCHMARK COMPLETO DA NBA (10 TEMPORADAS / GPU AMP)")
+    print("=================================================================")
+
+    print("\n--- [Etapa 1/6] Coletando e carregando dados brutos da NBA ---")
     collector = NBADataCollector(paths=paths)
     raw_df = collector.collect_all_seasons()
+    print(f"-> Total de registros brutos carregados: {len(raw_df)}")
 
+    print("\n--- [Etapa 2/6] Executando Pré-processamento e Engenharia de Atributos ---")
     preprocessor = NBAPreprocessor(paths=paths, rolling_windows=config.rolling_windows)
     train_df, val_df, test_df = preprocessor.process_and_split(raw_df)
 
     valid_game_ids = set(train_df["GAME_ID"]).union(set(val_df["GAME_ID"])).union(set(test_df["GAME_ID"]))
     feature_cols = preprocessor.feature_columns
+    print(f"-> Atributos calculados (Elo MOV, Four Factors, H2H, Rolling): {len(feature_cols)} dimensões")
+    print(f"-> Partições: Treino={len(train_df)} | Validação={len(val_df)} | Teste Cego={len(test_df)}")
 
     train_loader, val_loader, test_loader = get_tabular_loaders(
         train_df, val_df, test_df, feature_cols, batch_size=config.batch_size
@@ -302,6 +320,7 @@ def run_full_benchmark(
     all_test_probas.update(h_test)
     all_histories.update(h_hist)
 
+    print("\n--- [Etapa 6/6] Otimizando Deep Ensemble e Gerando Visualizações Matplotlib ---")
     ensemble_candidate_val = {
         "RNA Clássica (MLP)": all_val_probas["RNA Clássica (MLP)"],
         "Deep ResNet MLP": all_val_probas["Deep ResNet MLP"],
@@ -328,6 +347,7 @@ def run_full_benchmark(
 
     results_df = pd.DataFrame(all_results)
 
+    print("\n-> Gerando gráficos comparativos de alta resolução...")
     plot_learning_curves(all_histories, paths.outputs_figures / "learning_curves.png")
     plot_confusion_matrices(y_test, all_test_probas, paths.outputs_figures / "confusion_matrices.png")
     plot_roc_curves(y_test, all_test_probas, paths.outputs_figures / "roc_curves.png")
@@ -344,6 +364,9 @@ def run_full_benchmark(
     with open(paths.outputs_models / "ensemble_weights.json", "w") as f:
         json.dump(ensemble.weights, f, indent=2)
 
+    print("\n=================================================================")
+    print("✅ BENCHMARK CONCLUÍDO COM SUCESSO! RESULTADOS FINAIS:")
+    print("=================================================================")
     return results_df
 
 if __name__ == "__main__":

@@ -15,7 +15,8 @@ class BaseTrainer(ABC):
         save_path: Path | None = None,
         device: str | torch.device = "cpu",
         max_grad_norm: float = 1.0,
-        use_amp: bool = False
+        use_amp: bool = False,
+        verbose: bool = True
     ):
         self.device = torch.device(device) if isinstance(device, str) else device
         self.model = model.to(self.device)
@@ -26,6 +27,7 @@ class BaseTrainer(ABC):
         self.save_path = save_path
         self.max_grad_norm = max_grad_norm
         self.use_amp = use_amp and self.device.type == "cuda"
+        self.verbose = verbose
         self.scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp)
 
     @abstractmethod
@@ -85,6 +87,8 @@ class BaseTrainer(ABC):
         best_val_loss = float("inf")
         patience_counter = 0
 
+        model_name = self.model.__class__.__name__
+
         for epoch in range(epochs):
             tr_loss, tr_acc = self.train_epoch(train_loader)
             val_loss, val_acc = self.evaluate(val_loader)
@@ -100,6 +104,10 @@ class BaseTrainer(ABC):
             history["val_loss"].append(val_loss)
             history["val_acc"].append(val_acc)
 
+            if (epoch + 1) % 10 == 0 or epoch == 0 or epoch == epochs - 1:
+                if self.verbose:
+                    print(f"  [{model_name}] Época {epoch+1:02d}/{epochs:02d} | Train Loss: {tr_loss:.4f} Acc: {tr_acc:.4f} | Val Loss: {val_loss:.4f} Acc: {val_acc:.4f}")
+
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 patience_counter = 0
@@ -108,6 +116,8 @@ class BaseTrainer(ABC):
             else:
                 patience_counter += 1
                 if patience_counter >= self.patience:
+                    if self.verbose:
+                        print(f"  [{model_name}] Early stopping na época {epoch+1} (Melhor Val Loss: {best_val_loss:.4f})")
                     break
 
         if self.save_path and self.save_path.exists():

@@ -44,6 +44,7 @@ def plot_learning_curves(
     plt.tight_layout()
     plt.savefig(output_path, dpi=300)
     plt.close()
+    print(f"  [Visualizador] Gráfico salvo: {output_path}")
 
 def plot_confusion_matrices(
     y_true: np.ndarray,
@@ -84,6 +85,7 @@ def plot_confusion_matrices(
     plt.tight_layout()
     plt.savefig(output_path, dpi=300)
     plt.close()
+    print(f"  [Visualizador] Gráfico salvo: {output_path}")
 
 def plot_roc_curves(
     y_true: np.ndarray,
@@ -111,6 +113,7 @@ def plot_roc_curves(
     plt.tight_layout()
     plt.savefig(output_path, dpi=300)
     plt.close()
+    print(f"  [Visualizador] Gráfico salvo: {output_path}")
 
 def plot_calibration_curves(
     y_true: np.ndarray,
@@ -138,6 +141,7 @@ def plot_calibration_curves(
     plt.tight_layout()
     plt.savefig(output_path, dpi=300)
     plt.close()
+    print(f"  [Visualizador] Gráfico salvo: {output_path}")
 
 def plot_model_comparison(
     results_df: pd.DataFrame,
@@ -173,3 +177,4 @@ def plot_model_comparison(
     plt.tight_layout()
     plt.savefig(output_path, dpi=300)
     plt.close()
+    print(f"  [Visualizador] Gráfico salvo: {output_path}")
