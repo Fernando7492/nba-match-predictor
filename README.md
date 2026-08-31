@@ -8,12 +8,12 @@ Sistema preditivo para desfechos de partidas da NBA utilizando Redes Neurais Art
 
 O projeto avalia três famílias de modelos sobre dados reais de **10 temporadas da NBA (2014–2024)**, totalizando **23.958 registros de equipe e 11.979 partidas reais**:
 1. **Linhas de Base (Baselines):** Mando de Campo (*Home Court*), Regressão Logística $L_2$ e *Random Forest*.
-2. **RNA Clássica:** *Multi-Layer Perceptron* (MLP) de 2 camadas ocultas com *Dropout*.
+2. **RNA Clássica:** *Multi-Layer Perceptron* (MLP) de 2 camadas ocultas com *Dropout* e inicialização Kaiming.
 3. **Deep Learning:**
-   - *Deep ResNet MLP:* Arquitetura profunda com blocos residuais (*Skip Connections*), *Batch Normalization* e ativação *Mish*.
-   - *Dual-Branch Bidirectional LSTM:* Rede neural recorrente para séries temporais dos últimos 10 confrontos de cada time.
-   - *Temporal Matchup Transformer:* Rede baseada em mecanismo de auto-atenção multicabeça (*Multi-Head Self-Attention*).
-4. **Deep Ensemble:** Comitê probabilístico ponderado por otimização simplex de minimização de Brier Score.
+   - *Deep ResNet MLP:* Arquitetura profunda com blocos residuais (*Skip Connections*), *Batch Normalization*, ativação *Mish* e precisão mista AMP.
+   - *Dual-Branch Bidirectional LSTM:* Rede neural recorrente para séries temporais dos últimos 10 confrontos de cada time, com concatenação bidirecional correta e inicialização ortogonal.
+   - *Temporal Matchup Transformer:* Rede baseada em mecanismo de auto-atenção multicabeça (*Multi-Head Self-Attention*) com projeção escalada por $\sqrt{d_{model}}$.
+4. **Deep Ensemble:** Comitê probabilístico ponderado por otimização simplex de minimização de Brier Score com fallback de segurança.
 
 ---
 
@@ -24,11 +24,11 @@ O projeto avalia três famílias de modelos sobre dados reais de **10 temporadas
 | **Baseline (Mando de Campo)** | Baseline | 54,31% | 0,7039 | 0,5000 | 0,2489 | 0,6909 | 0,0271 |
 | **Regressão Logística** | Baseline | 63,82% | 0,6810 | 0,6896 | 0,2215 | 0,6335 | **0,0195** |
 | **Random Forest** | Baseline | 63,33% | 0,6938 | 0,6890 | 0,2221 | 0,6348 | 0,0259 |
-| **RNA Clássica (MLP)** | RNA | 64,31% | 0,7016 | 0,6945 | **0,2198** | **0,6294** | 0,0211 |
-| **Deep ResNet MLP** | Deep Learning | 61,71% | 0,6963 | 0,6909 | 0,2222 | 0,6344 | 0,0557 |
-| **Dual-Branch LSTM** | Deep Learning | 63,58% | 0,6805 | 0,6941 | 0,2216 | 0,6330 | 0,0281 |
-| **Matchup Transformer** | Deep Learning | **64,39%** | 0,6975 | 0,6886 | 0,2233 | 0,6377 | 0,0372 |
-| **Deep Ensemble** | Ensemble | 63,66% | **0,7018** | **0,6967** | 0,2200 | 0,6300 | 0,0316 |
+| **RNA Clássica (MLP)** | RNA | 63,25% | 0,6929 | 0,6905 | 0,2213 | 0,6322 | 0,0248 |
+| **Deep ResNet MLP** | Deep Learning | **64,47%** | **0,6988** | **0,6980** | **0,2189** | **0,6274** | 0,0235 |
+| **Dual-Branch LSTM** | Deep Learning | 63,50% | 0,6758 | 0,6731 | 0,2267 | 0,6454 | 0,0298 |
+| **Matchup Transformer** | Deep Learning | 63,82% | 0,6828 | 0,6780 | 0,2245 | 0,6404 | 0,0234 |
+| **Deep Ensemble** | Ensemble | 63,58% | 0,6932 | 0,6925 | 0,2210 | 0,6324 | 0,0273 |
 
 ---
 
@@ -42,7 +42,7 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 2. Executar a Suíte Completa de Testes Automatizados (36 Testes)
+### 2. Executar a Suíte Completa de Testes Automatizados (41 Testes)
 ```bash
 pytest tests/ -v
 ```
@@ -61,12 +61,12 @@ Os checkpoints dos modelos treinados (.pt) e figuras em alta resolução (.png) 
 ```
 nba-match-predictor/
 ├── src/
-│   ├── data/           # Coletor (10 temporadas), pré-processador e sequências
+│   ├── data/           # Coletor (10 temporadas), pré-processador e sequências vetorizadas
 │   ├── models/         # Baselines, MLP, ResNet, Bi-LSTM, Transformer, Ensemble
-│   ├── training/       # Trainers com Early Stopping, Schedulers e Losses
-│   ├── evaluation/     # Métricas (ECE, Brier, ROC-AUC), visualizador e benchmark
-│   └── utils/          # Configurações de caminhos e sementes fixas
-├── tests/              # 36 testes unitários e de integração
+│   ├── training/       # BaseTrainer unificado com AMP, Schedulers e Losses
+│   ├── evaluation/     # Métricas (ECE, Brier, ROC-AUC), visualizador e benchmark modular
+│   └── utils/          # Configurações de caminhos dinâmicos e sementes fixas
+├── tests/              # 41 testes unitários, integração e testes negativos
 ├── outputs/            # Checkpoints dos modelos (.pt) e figuras (.png)
 ├── requirements.txt    # Dependências do projeto
 └── README.md
