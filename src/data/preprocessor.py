@@ -102,7 +102,10 @@ class NBAPreprocessor:
         val_seasons: list[str] | None = None,
         test_seasons: list[str] | None = None
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        train_seasons = train_seasons or ["2018-19", "2019-20", "2020-21", "2021-22"]
+        train_seasons = train_seasons or [
+            "2014-15", "2015-16", "2016-17", "2017-18",
+            "2018-19", "2019-20", "2020-21", "2021-22"
+        ]
         val_seasons = val_seasons or ["2022-23"]
         test_seasons = test_seasons or ["2023-24"]
 

@@ -33,11 +33,12 @@ class NBADataCollector:
         seasons: list[str] | None = None,
         force_download: bool = False
     ) -> pd.DataFrame:
-        if self.raw_file.exists() and not force_download:
-            return pd.read_parquet(self.raw_file)
-
         if seasons is None:
             seasons = [
+                "2014-15",
+                "2015-16",
+                "2016-17",
+                "2017-18",
                 "2018-19",
                 "2019-20",
                 "2020-21",
@@ -46,11 +47,17 @@ class NBADataCollector:
                 "2023-24"
             ]
 
+        if self.raw_file.exists() and not force_download:
+            cached_df = pd.read_parquet(self.raw_file)
+            cached_seasons = set(cached_df["SEASON"].unique())
+            if set(seasons).issubset(cached_seasons):
+                return cached_df
+
         season_dfs: list[pd.DataFrame] = []
         for season in seasons:
             df = self.fetch_season(season)
             season_dfs.append(df)
-            time.sleep(1.0)
+            time.sleep(0.8)
 
         combined = pd.concat(season_dfs, ignore_index=True)
         combined["GAME_DATE"] = pd.to_datetime(combined["GAME_DATE"])
