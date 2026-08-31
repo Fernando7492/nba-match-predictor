@@ -1,19 +1,26 @@
 # NBA Match Predictor
 
-Sistema preditivo para desfechos de partidas da NBA utilizando Redes Neurais Artificiais (RNA) e Aprendizado Profundo (Deep Learning), desenvolvido para a disciplina de Redes Neurais da UFAPE.
+Sistema preditivo para desfechos de partidas da NBA utilizando Redes Neurais Artificiais (RNA), Aprendizado Profundo (Deep Learning), Métricas Avançadas de Posse e Elo Rating, desenvolvido para a disciplina de Redes Neurais da UFAPE.
 
 ---
 
 ## 🏀 Visão Geral
 
 O projeto avalia três famílias de modelos sobre dados reais de **10 temporadas da NBA (2014–2024)**, totalizando **23.958 registros de equipe e 11.979 partidas reais**:
-1. **Linhas de Base (Baselines):** Mando de Campo (*Home Court*), Regressão Logística $L_2$ e *Random Forest*.
-2. **RNA Clássica:** *Multi-Layer Perceptron* (MLP) de 2 camadas ocultas com *Dropout* e inicialização Kaiming.
-3. **Deep Learning:**
-   - *Deep ResNet MLP:* Arquitetura profunda com blocos residuais (*Skip Connections*), *Batch Normalization*, ativação *Mish* e precisão mista AMP.
-   - *Dual-Branch Bidirectional LSTM:* Rede neural recorrente para séries temporais dos últimos 10 confrontos de cada time, com concatenação bidirecional correta e inicialização ortogonal.
-   - *Temporal Matchup Transformer:* Rede baseada em mecanismo de auto-atenção multicabeça (*Multi-Head Self-Attention*) com projeção escalada por $\sqrt{d_{model}}$.
-4. **Deep Ensemble:** Comitê probabilístico ponderado por otimização simplex de minimização de Brier Score com fallback de segurança.
+1. **Engenharia de Atributos Avançada:**
+   - **Elo Rating Dinâmico com Margem de Vitória (MOV):** Formulação *FiveThirtyEight* com regressão à média sazonal.
+   - **Quatro Fatores de Dean Oliver:** $eFG\%$, $TOV\%$, $OREB\%$, $FT\text{ Rate}$.
+   - **Métricas de Posse:** $Pace$, *Offensive & Defensive Rating* (por 100 posses) e *Net Rating*.
+   - **Histórico de Confronto Direto (*Head-to-Head*):** Taxa de vitórias e saldo de pontos entre os dois times específicos.
+2. **Modelos Avaliados (9 Arquiteturas):**
+   - **Linhas de Base (Baselines):** Mando de Campo (*Home Court*), Regressão Logística $L_2$ e *Random Forest*.
+   - **RNA Clássica:** *Multi-Layer Perceptron* (MLP) de 2 camadas ocultas com *Dropout* e inicialização Kaiming.
+   - **Deep Learning:**
+     - *Deep ResNet MLP:* Arquitetura profunda com blocos residuais (*Skip Connections*), *Batch Normalization*, ativação *Mish* e precisão mista AMP.
+     - *Dual-Branch Bidirectional LSTM:* Rede neural recorrente para séries temporais dos últimos 10 confrontos de cada time, com concatenação bidirecional correta e inicialização ortogonal.
+     - *Temporal Matchup Transformer:* Rede baseada em mecanismo de auto-atenção multicabeça (*Multi-Head Self-Attention*) com projeção escalada por $\sqrt{d_{model}}$.
+     - *Hybrid Cross-Attention Fusion Net:* Rede neural multimodal fim-a-fim onde o vetor tabular atua como Consulta (*Query*) e as sequências temporais atuam como Chave/Valor (*Key/Value*).
+   - **Deep Ensemble:** Comitê probabilístico ponderado por otimização simplex de minimização de Brier Score e limiar ótimo (*Optimal Threshold Tuning*).
 
 ---
 
@@ -22,13 +29,14 @@ O projeto avalia três famílias de modelos sobre dados reais de **10 temporadas
 | Modelo | Família | Acurácia | F1-Score | ROC-AUC | Brier Score $\downarrow$ | Log-Loss $\downarrow$ | ECE $\downarrow$ |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
 | **Baseline (Mando de Campo)** | Baseline | 54,31% | 0,7039 | 0,5000 | 0,2489 | 0,6909 | 0,0271 |
-| **Regressão Logística** | Baseline | 63,82% | 0,6810 | 0,6896 | 0,2215 | 0,6335 | **0,0195** |
-| **Random Forest** | Baseline | 63,33% | 0,6938 | 0,6890 | 0,2221 | 0,6348 | 0,0259 |
-| **RNA Clássica (MLP)** | RNA | 63,25% | 0,6929 | 0,6905 | 0,2213 | 0,6322 | 0,0248 |
-| **Deep ResNet MLP** | Deep Learning | **64,47%** | **0,6988** | **0,6980** | **0,2189** | **0,6274** | 0,0235 |
-| **Dual-Branch LSTM** | Deep Learning | 63,50% | 0,6758 | 0,6731 | 0,2267 | 0,6454 | 0,0298 |
-| **Matchup Transformer** | Deep Learning | 63,82% | 0,6828 | 0,6780 | 0,2245 | 0,6404 | 0,0234 |
-| **Deep Ensemble** | Ensemble | 63,58% | 0,6932 | 0,6925 | 0,2210 | 0,6324 | 0,0273 |
+| **Regressão Logística** | Baseline | 64,55% | 0,6841 | 0,7059 | 0,2164 | 0,6223 | 0,0261 |
+| **Random Forest** | Baseline | 64,15% | 0,6973 | 0,7072 | 0,2166 | 0,6226 | 0,0496 |
+| **RNA Clássica (MLP)** | RNA | **65,04%** | **0,6993** | 0,6850 | 0,2230 | 0,6381 | 0,0371 |
+| **Deep ResNet MLP** | Deep Learning | 63,33% | 0,6979 | 0,6960 | 0,2201 | 0,6304 | 0,0386 |
+| **Dual-Branch LSTM** | Deep Learning | 64,15% | 0,6961 | 0,6847 | 0,2240 | 0,6390 | 0,0284 |
+| **Matchup Transformer** | Deep Learning | 62,44% | 0,6866 | 0,6689 | 0,2273 | 0,6463 | **0,0215** |
+| **Hybrid Cross-Attention** | Deep Learning | 61,71% | 0,6879 | 0,6701 | 0,2272 | 0,6464 | 0,0268 |
+| **Deep Ensemble** | Ensemble | 63,98% | 0,6913 | **0,7098** | **0,2153** | **0,6197** | 0,0484 |
 
 ---
 
@@ -42,7 +50,7 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 2. Executar a Suíte Completa de Testes Automatizados (41 Testes)
+### 2. Executar a Suíte Completa de Testes Automatizados (51 Testes)
 ```bash
 pytest tests/ -v
 ```
@@ -61,12 +69,12 @@ Os checkpoints dos modelos treinados (.pt) e figuras em alta resolução (.png) 
 ```
 nba-match-predictor/
 ├── src/
-│   ├── data/           # Coletor (10 temporadas), pré-processador e sequências vetorizadas
-│   ├── models/         # Baselines, MLP, ResNet, Bi-LSTM, Transformer, Ensemble
+│   ├── data/           # Coletor (10 temporadas), pré-processador, Elo MOV, Oliver 4 Factors e sequências
+│   ├── models/         # Baselines, MLP, ResNet, Bi-LSTM, Transformer, Cross-Attention, Ensemble
 │   ├── training/       # BaseTrainer unificado com AMP, Schedulers e Losses
-│   ├── evaluation/     # Métricas (ECE, Brier, ROC-AUC), visualizador e benchmark modular
+│   ├── evaluation/     # Métricas (ECE, Brier, ROC-AUC), Threshold Tuner, visualizador e benchmark modular
 │   └── utils/          # Configurações de caminhos dinâmicos e sementes fixas
-├── tests/              # 41 testes unitários, integração e testes negativos
+├── tests/              # 51 testes unitários, integração e testes de borda
 ├── outputs/            # Checkpoints dos modelos (.pt) e figuras (.png)
 ├── requirements.txt    # Dependências do projeto
 └── README.md

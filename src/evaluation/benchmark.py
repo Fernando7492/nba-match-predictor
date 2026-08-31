@@ -11,14 +11,17 @@ from src.data.collector import NBADataCollector
 from src.data.preprocessor import NBAPreprocessor
 from src.data.dataset import get_tabular_loaders
 from src.data.sequence_pipeline import NBASequencePipeline
+from src.data.hybrid_dataset import get_hybrid_loaders
 from src.models.baseline import HomeCourtBaseline, LogisticRegressionBaseline, RandomForestBaseline
 from src.models.mlp import ClassicalMLP
 from src.models.deep_mlp import DeepResNetMLP
 from src.models.recurrent import DualBranchLSTM
 from src.models.transformer import MatchupTransformer
+from src.models.hybrid_fusion import CrossAttentionFusionNet
 from src.models.ensemble import DeepEnsemblePredictor
 from src.training.trainer import ModelTrainer
 from src.training.sequence_trainer import SequenceModelTrainer
+from src.training.hybrid_trainer import HybridModelTrainer
 from src.evaluation.metrics import compute_all_metrics
 from src.evaluation.visualizer import (
     plot_learning_curves,
@@ -90,7 +93,7 @@ def run_tabular_deep_models(
     test_probas = {}
     histories = {}
 
-    mlp = ClassicalMLP(input_dim=input_dim, hidden_dim_1=64, hidden_dim_2=32, dropout=0.2)
+    mlp = ClassicalMLP(input_dim=input_dim, hidden_dim_1=128, hidden_dim_2=64, dropout=0.2)
     mlp_opt = torch.optim.AdamW(mlp.parameters(), lr=1e-3, weight_decay=config.weight_decay)
     mlp_sched = torch.optim.lr_scheduler.ReduceLROnPlateau(mlp_opt, mode="min", factor=0.5, patience=4)
     mlp_trainer = ModelTrainer(
@@ -184,6 +187,42 @@ def run_sequence_deep_models(
 
     return results, val_probas, test_probas, histories
 
+def run_hybrid_model(
+    hyb_train_loader: DataLoader,
+    hyb_val_loader: DataLoader,
+    hyb_test_loader: DataLoader,
+    tab_dim: int,
+    stat_dim: int,
+    y_test: np.ndarray,
+    paths: ProjectPaths,
+    config: ModelConfig
+) -> tuple[list[dict], dict[str, np.ndarray], dict[str, np.ndarray], dict[str, dict]]:
+    results = []
+    val_probas = {}
+    test_probas = {}
+    histories = {}
+
+    hybrid = CrossAttentionFusionNet(tabular_dim=tab_dim, sequence_stat_dim=stat_dim, d_model=64, nhead=4, dropout=0.2)
+    hyb_opt = torch.optim.AdamW(hybrid.parameters(), lr=5e-4, weight_decay=config.weight_decay)
+    hyb_sched = torch.optim.lr_scheduler.ReduceLROnPlateau(hyb_opt, mode="min", factor=0.5, patience=4)
+    hyb_trainer = HybridModelTrainer(
+        model=hybrid,
+        optimizer=hyb_opt,
+        scheduler=hyb_sched,
+        patience=config.early_stopping_patience,
+        save_path=paths.outputs_models / "hybrid_fusion_net.pt",
+        device=config.device,
+        use_amp=True
+    )
+    histories["Hybrid Cross-Attention"] = hyb_trainer.fit(hyb_train_loader, hyb_val_loader, epochs=config.epochs)
+    p_hyb_val = hyb_trainer.predict_proba(hyb_val_loader).numpy().ravel()
+    p_hyb_test = hyb_trainer.predict_proba(hyb_test_loader).numpy().ravel()
+    val_probas["Hybrid Cross-Attention"] = p_hyb_val
+    test_probas["Hybrid Cross-Attention"] = p_hyb_test
+    results.append(evaluate_and_record("Hybrid Cross-Attention", "Deep Learning", y_test, p_hyb_test))
+
+    return results, val_probas, test_probas, histories
+
 def run_full_benchmark(
     paths: ProjectPaths | None = None,
     config: ModelConfig | None = None
@@ -214,6 +253,10 @@ def run_full_benchmark(
     seq_train_loader = DataLoader(seq_train_ds, batch_size=config.batch_size, shuffle=True)
     seq_val_loader = DataLoader(seq_val_ds, batch_size=config.batch_size, shuffle=False)
     seq_test_loader = DataLoader(seq_test_ds, batch_size=config.batch_size, shuffle=False)
+
+    hyb_train_loader, hyb_val_loader, hyb_test_loader = get_hybrid_loaders(
+        train_df, val_df, test_df, feature_cols, seq_train_ds, seq_val_ds, seq_test_ds, batch_size=config.batch_size
+    )
 
     x_train = train_df[feature_cols].values
     y_train = train_df["TARGET_HOME_W"].values
@@ -250,11 +293,21 @@ def run_full_benchmark(
     all_test_probas.update(s_test)
     all_histories.update(s_hist)
 
+    h_res, h_val, h_test, h_hist = run_hybrid_model(
+        hyb_train_loader, hyb_val_loader, hyb_test_loader,
+        len(feature_cols), len(seq_pipeline.stat_cols), y_test, paths, config
+    )
+    all_results.extend(h_res)
+    all_val_probas.update(h_val)
+    all_test_probas.update(h_test)
+    all_histories.update(h_hist)
+
     ensemble_candidate_val = {
         "RNA Clássica (MLP)": all_val_probas["RNA Clássica (MLP)"],
         "Deep ResNet MLP": all_val_probas["Deep ResNet MLP"],
         "Dual-Branch LSTM": all_val_probas["Dual-Branch LSTM"],
         "Matchup Transformer": all_val_probas["Matchup Transformer"],
+        "Hybrid Cross-Attention": all_val_probas["Hybrid Cross-Attention"],
         "Regressão Logística": all_val_probas["Regressão Logística"],
         "Random Forest": all_val_probas["Random Forest"]
     }
@@ -263,6 +316,7 @@ def run_full_benchmark(
         "Deep ResNet MLP": all_test_probas["Deep ResNet MLP"],
         "Dual-Branch LSTM": all_test_probas["Dual-Branch LSTM"],
         "Matchup Transformer": all_test_probas["Matchup Transformer"],
+        "Hybrid Cross-Attention": all_test_probas["Hybrid Cross-Attention"],
         "Regressão Logística": all_test_probas["Regressão Logística"],
         "Random Forest": all_test_probas["Random Forest"]
     }
