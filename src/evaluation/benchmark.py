@@ -241,7 +241,7 @@ def run_full_benchmark(
     set_seed(config.seed)
 
     print("=================================================================")
-    print("🏀 INICIANDO BENCHMARK COMPLETO DA NBA (10 TEMPORADAS / GPU AMP)")
+    print("INICIANDO BENCHMARK COMPLETO DA NBA (10 TEMPORADAS / GPU AMP)")
     print("=================================================================")
 
     print("\n--- [Etapa 1/6] Coletando e carregando dados brutos da NBA ---")
@@ -365,10 +365,20 @@ def run_full_benchmark(
         json.dump(ensemble.weights, f, indent=2)
 
     print("\n=================================================================")
-    print("✅ BENCHMARK CONCLUÍDO COM SUCESSO! RESULTADOS FINAIS:")
+    print("BENCHMARK CONCLUIDO COM SUCESSO. RESULTADOS FINAIS:")
     print("=================================================================")
+    summary_cols = ["model", "family", "accuracy", "f1_score", "roc_auc", "brier_score", "log_loss", "ece"]
+    table_to_print = results_df[summary_cols].copy()
+    table_to_print["accuracy"] = (table_to_print["accuracy"] * 100).map("{:.2f}%".format)
+    table_to_print["f1_score"] = table_to_print["f1_score"].map("{:.4f}".format)
+    table_to_print["roc_auc"] = table_to_print["roc_auc"].map("{:.4f}".format)
+    table_to_print["brier_score"] = table_to_print["brier_score"].map("{:.4f}".format)
+    table_to_print["log_loss"] = table_to_print["log_loss"].map("{:.4f}".format)
+    table_to_print["ece"] = table_to_print["ece"].map("{:.4f}".format)
+    table_to_print.columns = ["Modelo", "Familia", "Acuracia", "F1-Score", "ROC-AUC", "Brier", "Log-Loss", "ECE"]
+    print(table_to_print.to_string(index=False))
+    print("=================================================================\n")
     return results_df
 
 if __name__ == "__main__":
-    df = run_full_benchmark()
-    print(df.to_string())
+    run_full_benchmark()
