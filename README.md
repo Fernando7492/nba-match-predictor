@@ -55,21 +55,29 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt
 ```
 
-### 2. Rodar a Suíte de Testes Automatizados
-```bash
-pytest tests/ -v
-```
+### 2. Executar via Ponto de Entrada Principal (`main.py`)
 
-### 3. Rodar o Treinamento e Benchmark Completo
-```bash
-PYTHONPATH=. python -m src.evaluation.benchmark
-```
+O arquivo `main.py` na raiz do repositório gerencia a execução de forma direta:
 
-### 4. Coletar ou Atualizar os Dados da NBA (Opcional)
-Os dados históricos já estão salvos em cache na pasta `data/`, mas a extração completa via `nba_api` pode ser reexecutada:
-```bash
-PYTHONPATH=. python -m src.data.collector
-```
+* **Rodar o Treinamento e Benchmark Completo (Padrão):**
+  ```bash
+  python main.py
+  ```
+
+* **Rodar a Suíte de Testes Automatizados (52 testes):**
+  ```bash
+  python main.py --mode test
+  ```
+
+* **Coletar ou Atualizar Dados da NBA (Opcional):**
+  ```bash
+  python main.py --mode collect
+  ```
+
+* **Forçar Execução em CPU (Opcional):**
+  ```bash
+  python main.py --device cpu
+  ```
 
 Os modelos treinados (.pt), resultados tabulares (.csv, .json) e gráficos comparativos em alta resolução (.png) são gerados na pasta `outputs/`.
 
@@ -91,5 +99,6 @@ nba-match-predictor/
 │   ├── models/         # Checkpoints dos modelos treinados (.pt, .json)
 │   └── evaluation_results.csv # Tabela com as métricas do benchmark
 ├── requirements.txt    # Dependências do projeto
+├── main.py             # Ponto de entrada CLI (benchmark, collect, test)
 └── README.md
 ```
