@@ -2,13 +2,16 @@
 
 Sistema preditivo para resultados de partidas da NBA utilizando Redes Neurais Artificiais (RNA), Aprendizado Profundo (Deep Learning), Ratings Dinâmicos (Elo MOV) e Métricas Avançadas de Posse de Bola.
 
-Desenvolvido para a disciplina de Redes Neurais da Universidade Federal do Agreste de Pernambuco (UFAPE).
+* **Autor:** Fernando Emidio da Silva Neto
+* **Curso:** Bacharelado em Ciências da Computação
+* **Instituição:** Universidade Federal do Agreste de Pernambuco (UFAPE)
+* **Disciplina:** Redes Neurais
 
 ---
 
 ## Destaques do Projeto
 
-* **Base de Dados Completa (10 Temporadas / 2014–2024):** 23.958 registros de equipe e 11.979 partidas reais coletadas via `nba_api`.
+* **Base de Dados Completa (10 Temporadas / 2014 a 2024):** 23.958 registros de equipe e 11.979 partidas reais coletadas via `nba_api`.
 * **Zero Data Leakage:** Defasagem temporal estrita (*Lag-1*) e janelas móveis (3, 7 e 14 jogos) impedindo qualquer vazamento de dados futuros.
 * **Engenharia de Atributos de Domínio:**
   * Elo Rating Dinâmico (Margem de Vitória - MOV / FiveThirtyEight).
@@ -62,6 +65,12 @@ pytest tests/ -v
 PYTHONPATH=. python -m src.evaluation.benchmark
 ```
 
+### 4. Coletar ou Atualizar os Dados da NBA (Opcional)
+Os dados históricos já estão salvos em cache na pasta `data/`, mas a extração completa via `nba_api` pode ser reexecutada:
+```bash
+PYTHONPATH=. python -m src.data.collector
+```
+
 Os modelos treinados (.pt), resultados tabulares (.csv, .json) e gráficos comparativos em alta resolução (.png) são gerados na pasta `outputs/`.
 
 ---
@@ -76,8 +85,11 @@ nba-match-predictor/
 │   ├── training/       # BaseTrainer unificado com Mixed Precision (AMP / FP16) e Early Stopping
 │   ├── evaluation/     # Métricas (ECE, Brier, ROC-AUC), Threshold Tuner e Visualizador
 │   └── utils/          # Configurações dinâmicas e sementes determinísticas
-├── tests/              # Testes unitários, integração e testes negativos
-├── outputs/            # Checkpoints (.pt), métricas (.csv, .json) e gráficos (.png)
+├── tests/              # Testes unitários, integração e testes negativos (52 testes)
+├── outputs/
+│   ├── figures/        # Gráficos comparativos, curvas ROC e calibração (.png)
+│   ├── models/         # Checkpoints dos modelos treinados (.pt, .json)
+│   └── evaluation_results.csv # Tabela com as métricas do benchmark
 ├── requirements.txt    # Dependências do projeto
 └── README.md
 ```
